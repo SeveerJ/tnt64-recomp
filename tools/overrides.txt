@@ -1,0 +1,52 @@
+# Hand-identified libultra functions (vram name)  -- from disassembly review
+800B6B30 osInitialize
+800B6650 osWritebackDCacheAll
+800BF2A0 __osSetSR
+800BF2C0 __osSetFpcCsr
+800BF2D0 __osSiRawReadIo
+800BF320 __osSiRawWriteIo
+800BF370 osInvalICache
+800BF3F0 osUnmapTLBAll
+800BF440 osMapTLBRdb
+800BF4A0 osPiRawReadIo
+800B8590 osAiSetFrequency
+800B88D0 osAiGetLength
+800C2D10 __osSiDeviceBusy
+800A32B0 game_SetWatchLo
+800A32E0 game_ClearWatchLo
+800C3310 rspboot_text
+800BAD90 __d_to_ll
+# n64sym false positives on small game functions: revert to func_ names
+800480D8 -
+80052A90 -
+8005EE84 -
+8005FC70 -
+80060654 -
+80060890 -
+80061124 -
+8007E734 -
+8007E740 -
+80080EB4 -
+800A3AB4 -
+# libultra 2.0I-era routines identified by fuzzy/structural match
+800B3BFC osSyncPrintf
+800B3BE0 rmonPrintf
+800B74F0 __ull_rshift
+800B7870 osViGetNextFramebuffer
+800B84F0 alHeapInit
+800BB4D0 guRandom
+800BF550 __osPiGetAccess
+800BF594 __osPiRelAccess
+800BF5E0 osPiRawStartDma
+# Controller Pak entry points called by the game's save manager (callee sets match libultra source)
+800B3620 osPfsInitPak
+800B5300 osPfsFileState
+800B5420 osPfsReadWriteFile
+800B71E0 viMgrMain
+800B3978 __osMakeMotorData
+800B46E4 tnt_PfsUnknown_46E4
+800B4610 tnt_PfsUnknown_4610
+800B5CF0 tnt_GbpakUnknown_5CF0
+# Routed to alignment-safe wrappers in port/tnt_cont_fix.c (status array is 2-byte aligned)
+800B3120 tnt_osContInit
+800B3FC4 tnt_osContGetQuery

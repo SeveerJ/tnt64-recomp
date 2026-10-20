@@ -1,0 +1,55 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows",
+      "displayName": "Windows x64 (clang-cl)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "windows-debug",
+      "displayName": "Windows x64 (clang-cl, Debug)",
+      "inherits": "windows",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "windows-headless",
+      "displayName": "Windows x64 headless boot test",
+      "inherits": "windows",
+      "cacheVariables": { "TNT_HEADLESS": "ON" }
+    },
+    {
+      "name": "linux",
+      "displayName": "Linux (clang)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "linux-headless",
+      "displayName": "Linux headless boot test",
+      "inherits": "linux",
+      "cacheVariables": { "TNT_HEADLESS": "ON", "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows", "configurePreset": "windows" },
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-headless", "configurePreset": "windows-headless" },
+    { "name": "linux", "configurePreset": "linux" },
+    { "name": "linux-headless", "configurePreset": "linux-headless" }
+  ]
+}

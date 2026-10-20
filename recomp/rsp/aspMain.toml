@@ -1,0 +1,13 @@
+# The New Tetris audio microcode (libultra aspMain, 16-command table)
+# Task: func_80085924 builds OSTask type 2 with ucode=0x800C4770, ucode_data=0x800E1C50 (0x800 bytes)
+text_offset = 0x8A9F0          # ROM offset of ucode text (vram 0x800C4770)
+text_size = 0xE18
+text_address = 0x04001080      # IMEM load address after rspboot
+rom_file_path = "../../baserom.us.z64"
+output_file_path = "aspMain.cpp"
+output_function_name = "aspMain"
+# Command dispatch table at ucode_data+0x10 (ROM 0xA7EE0): 16 IMEM targets
+extra_indirect_branch_targets = [
+    0x1118, 0x1470, 0x11DC, 0x1B38, 0x1214, 0x187C, 0x1254, 0x12D0,
+    0x12EC, 0x1328, 0x140C, 0x1294, 0x1E24, 0x138C, 0x170C, 0x144C,
+]

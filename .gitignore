@@ -1,0 +1,18 @@
+# Your ROM and anything copied from it
+*.z64
+*.n64
+*.v64
+tnt_data/
+# Build output and downloaded dependencies
+TNTRecomp/out/
+TNTRecomp/build*/
+TNTRecomp/lib/
+build-vita/
+runtime/N64ModernRuntime/
+runtime/N64ModernRuntime-vita/
+*.vpk
+*.velf
+*.self
+build_log.txt
+run_log.txt
+settings.ini

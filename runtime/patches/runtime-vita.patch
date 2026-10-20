@@ -1,0 +1,523 @@
+--- a/N64Recomp/include/recomp.h
++++ b/N64Recomp/include/recomp.h
+@@ -67,7 +67,24 @@
+ }
+ 
+ #else
+-#error "128-bit integer type not found"
++// Portable 64x64 -> 128-bit multiply for 32-bit targets (e.g. PS Vita).
++static inline void DMULTU(uint64_t a, uint64_t b, uint64_t* lo64, uint64_t* hi64) {
++    uint64_t a_lo = (uint32_t)a, a_hi = a >> 32, b_lo = (uint32_t)b, b_hi = b >> 32;
++    uint64_t p0 = a_lo * b_lo, p1 = a_lo * b_hi, p2 = a_hi * b_lo, p3 = a_hi * b_hi;
++    uint64_t mid = (p0 >> 32) + (uint32_t)p1 + (uint32_t)p2;
++    *lo64 = (mid << 32) | (uint32_t)p0;
++    *hi64 = p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
++}
++
++static inline void DMULT(int64_t a, int64_t b, int64_t* lo64, int64_t* hi64) {
++    uint64_t lo, hi;
++    DMULTU((uint64_t)a, (uint64_t)b, &lo, &hi);
++    // Signed correction of the high half.
++    if (a < 0) hi -= (uint64_t)b;
++    if (b < 0) hi -= (uint64_t)a;
++    *lo64 = (int64_t)lo;
++    *hi64 = (int64_t)hi;
++}
+ #endif
+ 
+ static inline void DDIV(int64_t a, int64_t b, int64_t* quot, int64_t* rem) {
+--- a/librecomp/CMakeLists.txt
++++ b/librecomp/CMakeLists.txt
+@@ -63,5 +63,15 @@
+ add_subdirectory(${PROJECT_SOURCE_DIR}/../thirdparty/miniz ${CMAKE_CURRENT_BINARY_DIR}/miniz)
+ add_subdirectory(${PROJECT_SOURCE_DIR}/../N64Recomp ${CMAKE_CURRENT_BINARY_DIR}/N64Recomp EXCLUDE_FROM_ALL)
+ 
+-target_link_libraries(librecomp PRIVATE ultramodern N64Recomp LiveRecomp)
++if (VITA)
++    # PS Vita: no mod support (it needs a JIT and dynamic libraries). The mod API is
++    # stubbed out in TNTRecomp/vita/vita_mod_stubs.cpp.
++    get_target_property(_librecomp_sources librecomp SOURCES)
++    list(FILTER _librecomp_sources EXCLUDE REGEX "/src/mod[^/]*\\.cpp$")
++    set_property(TARGET librecomp PROPERTY SOURCES ${_librecomp_sources})
++    target_include_directories(librecomp PRIVATE "${PROJECT_SOURCE_DIR}/../N64Recomp/include")
++    target_link_libraries(librecomp PRIVATE ultramodern)
++else()
++    target_link_libraries(librecomp PRIVATE ultramodern N64Recomp LiveRecomp)
++endif()
+ target_link_libraries(librecomp PUBLIC miniz)
+--- a/librecomp/include/librecomp/mods.hpp
++++ b/librecomp/include/librecomp/mods.hpp
+@@ -50,12 +50,12 @@
+ struct std::hash<recomp::mods::HookDefinition>
+ {
+     std::size_t operator()(const recomp::mods::HookDefinition& def) const {
+-        // This hash packing only works if the resulting value is 64 bits.
+-        static_assert(sizeof(std::size_t) == 8);
+         // Combine the three values into a single 64-bit value.
+         // The lower 2 bits of a function address will always be zero, so pack
+         // the value of at_return into the lowest bit.
+-        return (size_t(def.section_rom) << 32) | size_t(def.function_vram) | size_t(def.at_return ? 1 : 0);
++        uint64_t packed = (uint64_t(def.section_rom) << 32) | uint64_t(def.function_vram) | uint64_t(def.at_return ? 1 : 0);
++        if constexpr (sizeof(std::size_t) == 8) return std::size_t(packed);
++        else return std::hash<uint64_t>{}(packed); // 32-bit hosts (PS Vita)
+     }
+ };
+ 
+--- a/librecomp/src/files.cpp
++++ b/librecomp/src/files.cpp
+@@ -1,3 +1,7 @@
++#include <cstring>
++#include <cerrno>
++#include <cstdio>
++#include <fstream>
+ #include "files.hpp"
+ 
+ constexpr std::u8string_view backup_suffix = u8".bak";
+@@ -28,6 +32,27 @@
+     return temp_file_out;
+ }
+ 
++#if defined(__vita__)
++// newlib on the PS Vita can't do std::filesystem::copy_file, so copy through streams.
++static void vita_copy_file(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec) {
++    ec = {};
++    FILE* in = fopen(from.string().c_str(), "rb");
++    if (!in) { ec = std::error_code(errno, std::generic_category()); fprintf(stderr, "[save] can't open %s: %s\n", from.string().c_str(), strerror(errno)); return; }
++    FILE* out = fopen(to.string().c_str(), "wb");
++    if (!out) { ec = std::error_code(errno, std::generic_category()); fprintf(stderr, "[save] can't create %s: %s\n", to.string().c_str(), strerror(errno)); fclose(in); return; }
++    char buf[16384];
++    size_t n;
++    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
++        if (fwrite(buf, 1, n, out) != n) { ec = std::make_error_code(std::errc::io_error); fprintf(stderr, "[save] write to %s failed\n", to.string().c_str()); break; }
++    }
++    fclose(in);
++    if (fclose(out) != 0 && !ec) ec = std::make_error_code(std::errc::io_error);
++}
++#define TNT_COPY_FILE(from, to, ec) vita_copy_file(from, to, ec)
++#else
++#define TNT_COPY_FILE(from, to, ec) std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing, ec)
++#endif
++
+ bool recomp::finalize_output_file_with_backup(const std::filesystem::path& filepath) {
+     std::filesystem::path backup_path{filepath};
+     backup_path += backup_suffix;
+@@ -37,12 +62,12 @@
+ 
+     std::error_code ec;
+     if (std::filesystem::exists(filepath, ec)) {
+-        std::filesystem::copy_file(filepath, backup_path, std::filesystem::copy_options::overwrite_existing, ec);
++        TNT_COPY_FILE(filepath, backup_path, ec);
+         if (ec) {
+             return false;
+         }
+     }
+-    std::filesystem::copy_file(temp_path, filepath, std::filesystem::copy_options::overwrite_existing, ec);
++    TNT_COPY_FILE(temp_path, filepath, ec);
+     if (ec) {
+         return false;
+     }
+--- a/librecomp/src/pi.cpp
++++ b/librecomp/src/pi.cpp
+@@ -122,6 +122,7 @@
+             save_file.write(save_context.save_buffer.data(), save_context.save_buffer.size());
+         }
+         else {
++            fprintf(stderr, "[save] couldn't open the temporary save file next to %s\n", ultramodern::get_save_file_path().string().c_str());
+             saving_failed = true;
+         }
+     }
+--- a/librecomp/src/recomp.cpp
++++ b/librecomp/src/recomp.cpp
+@@ -23,11 +23,17 @@
+ #include "ultramodern/error_handling.hpp"
+ #include "librecomp/addresses.hpp"
+ #include "librecomp/mods.hpp"
++#if defined(__vita__)
++namespace N64Recomp { void live_recompiler_init(); } // stubbed: no mods on the Vita
++#else
+ #include "recompiler/live_recompiler.h"
++#endif
+ 
+ #ifdef _WIN32
+ #    define WIN32_LEAN_AND_MEAN
+ #    include <Windows.h>
++#elif defined(__vita__)
++#    include <malloc.h>
+ #else
+ #    include <sys/mman.h>
+ #endif
+@@ -53,8 +59,10 @@
+ std::filesystem::path config_path;
+ // Maps game_id to the game's entry.
+ std::unordered_map<std::u8string, recomp::GameEntry> game_roms {};
++#if !defined(__vita__) // no mods on the Vita: see TNTRecomp/vita/vita_mod_stubs.cpp
+ // The global mod context.
+ std::unique_ptr<recomp::mods::ModContext> mod_context = std::make_unique<recomp::mods::ModContext>();
++#endif
+ // The project's version.
+ recomp::Version project_version;
+ // The current game's save type.
+@@ -82,13 +90,16 @@
+         std::lock_guard<std::mutex> lock(game_roms_mutex);
+         game_roms.insert({ entry.game_id, entry });
+     }
++#if !defined(__vita__) // no mods on the Vita: see TNTRecomp/vita/vita_mod_stubs.cpp
+     if (!entry.mod_game_id.empty()) {
+         std::lock_guard<std::mutex> lock(mod_context_mutex);
+         mod_context->register_game(entry.mod_game_id);
+     }
++#endif
+     return true;
+ }
+ 
++#if !defined(__vita__) // no mods on the Vita: see TNTRecomp/vita/vita_mod_stubs.cpp
+ void recomp::mods::initialize_mods() {
+     N64Recomp::live_recompiler_init();
+     std::filesystem::create_directories(config_path / mods_directory);
+@@ -161,6 +172,7 @@
+     return mod_context->is_dependency_met(mod_index, dependency_id);
+ }
+ 
++#endif
+ bool check_hash(const std::vector<uint8_t>& rom_data, uint64_t expected_hash) {
+     uint64_t calculated_hash = XXH3_64bits(rom_data.data(), rom_data.size());
+     return calculated_hash == expected_hash;
+@@ -560,6 +572,7 @@
+     current_game.reset();
+ }
+ 
++#if !defined(__vita__) // no mods on the Vita: see TNTRecomp/vita/vita_mod_stubs.cpp
+ void recomp::mods::enable_mod(const std::string& mod_id, bool enabled) {
+     std::lock_guard lock { mod_context_mutex };
+     return mod_context->enable_mod(mod_id, enabled, true);
+@@ -698,6 +711,7 @@
+     return mod_context->set_mod_index(mod_game_id, mod_id, index);
+ }
+ 
++#endif
+ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
+     game_status.wait(GameStatus::None);
+ 
+@@ -717,6 +731,7 @@
+                     game_entry.on_init_callback(rdram, context);
+                 }
+ 
++#if !defined(__vita__) // no mods on the Vita: see TNTRecomp/vita/vita_mod_stubs.cpp
+                 uint32_t mod_ram_used = 0;
+                 if (!game_entry.mod_game_id.empty()) {
+                     std::vector<recomp::mods::ModLoadErrorDetails> mod_load_errors;
+@@ -748,6 +763,9 @@
+                     }
+                 }
+ 
++#else
++                uint32_t mod_ram_used = 0;
++#endif
+                 recomp::init_heap(rdram, recomp::mod_rdram_start + mod_ram_used);
+ 
+                 save_type = game_entry.save_type;
+@@ -946,6 +964,10 @@
+             VirtualFree(rdram, 0, MEM_RELEASE);
+         }
+     }
++#elif defined(__vita__)
++    rdram = static_cast<uint8_t*>(memalign(0x1000, allocation_size));
++    alloc_failed = (rdram == nullptr);
++    if (!alloc_failed) memset(rdram, 0, allocation_size);
+ #else
+     rdram = (uint8_t*)mmap(NULL, allocation_size, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+     alloc_failed = rdram == reinterpret_cast<uint8_t*>(MAP_FAILED);
+@@ -1001,6 +1023,9 @@
+ #ifdef _WIN32
+     // VirtualFree returns zero on failure.
+     free_failed = (VirtualFree(rdram, 0, MEM_RELEASE) == 0);
++#elif defined(__vita__)
++    ::free(rdram);
++    free_failed = false;
+ #else
+     // munmap returns -1 on failure.
+     free_failed = (munmap(rdram, allocation_size) == -1);
+--- a/thirdparty/concurrentqueue/lightweightsemaphore.h
++++ b/thirdparty/concurrentqueue/lightweightsemaphore.h
+@@ -24,6 +24,8 @@
+ }
+ #elif defined(__MACH__)
+ #include <mach/mach.h>
++#elif defined(__vita__)
++#include <psp2/kernel/threadmgr.h>
+ #elif defined(__unix__)
+ #include <semaphore.h>
+ 
+@@ -165,6 +167,36 @@
+ 		}
+ 	}
+ };
++#elif defined(__vita__)
++//---------------------------------------------------------
++// Semaphore (PS Vita kernel semaphore). The newlib/pthread sem_* functions poll every
++// 0.5 ms to support cancellation; the kernel's own semaphore sleeps until signalled.
++//---------------------------------------------------------
++class Semaphore
++{
++private:
++	SceUID m_sema;
++
++	Semaphore(const Semaphore& other) MOODYCAMEL_DELETE_FUNCTION;
++	Semaphore& operator=(const Semaphore& other) MOODYCAMEL_DELETE_FUNCTION;
++
++public:
++	Semaphore(int initialCount = 0)
++	{
++		m_sema = sceKernelCreateSema("mc_sema", 0, initialCount, 0x7FFFFFFF, nullptr);
++		assert(m_sema >= 0);
++	}
++	~Semaphore() { sceKernelDeleteSema(m_sema); }
++	bool wait() { return sceKernelWaitSema(m_sema, 1, nullptr) >= 0; }
++	bool try_wait() { return sceKernelPollSema(m_sema, 1) >= 0; }
++	bool timed_wait(std::uint64_t usecs)
++	{
++		SceUInt timeout = usecs > 0xFFFFFFFFull ? 0xFFFFFFFFu : (SceUInt)usecs;
++		return sceKernelWaitSema(m_sema, 1, &timeout) >= 0;
++	}
++	void signal() { sceKernelSignalSema(m_sema, 1); }
++	void signal(int count) { if (count > 0) sceKernelSignalSema(m_sema, count); }
++};
+ #elif defined(__unix__)
+ //---------------------------------------------------------
+ // Semaphore (POSIX, Linux)
+@@ -346,7 +378,14 @@
+ 	}
+ 
+ public:
+-	LightweightSemaphore(ssize_t initialCount = 0, int maxSpins = 10000) : m_count(initialCount), m_maxSpins(maxSpins)
++#if defined(__vita__)
++	// PS Vita: only 3 cores for apps, so spinning before sleeping just steals CPU from other threads.
++	static constexpr int default_max_spins = 16;
++#else
++	static constexpr int default_max_spins = 10000;
++#endif
++	LightweightSemaphore(ssize_t initialCount = 0, int maxSpins = default_max_spins)
++		: m_count(initialCount), m_maxSpins(maxSpins)
+ 	{
+ 		assert(initialCount >= 0);
+ 		assert(maxSpins >= 0);
+--- a/ultramodern/include/ultramodern/renderer_context.hpp
++++ b/ultramodern/include/ultramodern/renderer_context.hpp
+@@ -62,6 +62,12 @@
+             void* view;
+             auto operator<=>(const WindowHandle&) const = default;
+         };
++#elif defined(__vita__)
++        // PS Vita: no window; the backend owns the display.
++        struct WindowHandle {
++            void* display = nullptr;
++            auto operator<=>(const WindowHandle&) const = default;
++        };
+ #endif
+ 
+         enum class SetupResult {
+--- a/ultramodern/include/ultramodern/ultramodern.hpp
++++ b/ultramodern/include/ultramodern/ultramodern.hpp
+@@ -21,11 +21,35 @@
+ #include "ultramodern/rsp.hpp"
+ #include "ultramodern/threads.hpp"
+ 
++#if defined(__vita__)
++#include <psp2/kernel/threadmgr.h>
++// PS Vita: each N64 thread's run/initialized signals use the kernel's own counting
++// semaphore. (The POSIX semaphore path let a waiting game thread resume without being
++// signalled, so two N64 threads ran at once; std::condition_variable works but goes
++// through pthread-embedded, which wakes every 0.5 ms to poll for cancellation.)
++class UltraHostSemaphore {
++public:
++    UltraHostSemaphore() { sema_ = sceKernelCreateSema("ultra_sema", 0, 0, 0x7FFFFFFF, nullptr); }
++    ~UltraHostSemaphore() { sceKernelDeleteSema(sema_); }
++    UltraHostSemaphore(const UltraHostSemaphore&) = delete;
++    UltraHostSemaphore& operator=(const UltraHostSemaphore&) = delete;
++    bool wait() { return sceKernelWaitSema(sema_, 1, nullptr) >= 0; }
++    void signal(int n = 1) { if (n > 0) sceKernelSignalSema(sema_, n); }
++private:
++    SceUID sema_;
++};
++struct UltraThreadContext {
++    std::thread host_thread;
++    UltraHostSemaphore running;
++    UltraHostSemaphore initialized;
++};
++#else
+ struct UltraThreadContext {
+     std::thread host_thread;
+     moodycamel::LightweightSemaphore running;
+     moodycamel::LightweightSemaphore initialized;
+ };
++#endif
+ 
+ namespace ultramodern {
+ 
+@@ -174,7 +198,11 @@
+ 
+ #define MIN(a, b) ((a) < (b) ? (a) : (b))
+ 
++#if defined(TNT_VITA_LOG_TO_TTY) && defined(TNT_DEBUG_THREADS)
++#define debug_printf(...) printf(__VA_ARGS__);
++#else
+ #define debug_printf(...)
++#endif
+ //#define debug_printf(...) printf(__VA_ARGS__);
+ 
+ #endif
+--- a/ultramodern/src/error_handling.cpp
++++ b/ultramodern/src/error_handling.cpp
+@@ -21,7 +21,7 @@
+ void ultramodern::error_handling::quick_exit(const char* filename, int line, const char *func, int exit_status) {
+     fprintf(stderr, "Exiting with exit status '%i'. Function %s, at file %s:%i\n", exit_status, func, filename, line);
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) || defined(__vita__)
+     std::_Exit(exit_status);
+ #else
+     std::quick_exit(exit_status);
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -361,7 +361,12 @@
+     while (!exited) {
+         // Try to pull an action from the queue
+         Action action;
++#if defined(__vita__)
++        // A 1 ms poll keeps a whole Vita core busy; actions wake this thread anyway.
++        if (events_context.action_queue.wait_dequeue_timed(action, 50ms)) {
++#else
+         if (events_context.action_queue.wait_dequeue_timed(action, 1ms)) {
++#endif
+             // Determine the action type and act on it
+             if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
+                 // Tell the game that the RSP completed instantly. This will allow it to queue other task types, but it won't
+--- a/ultramodern/src/threadqueue.cpp
++++ b/ultramodern/src/threadqueue.cpp
+@@ -43,14 +43,17 @@
+ bool ultramodern::thread_queue_remove(RDRAM_ARG PTR(PTR(OSThread)) queue_, PTR(OSThread) t_) {
+     debug_printf("[Thread Queue] Removing thread %d from queue 0x%08X\n", TO_PTR(OSThread, t_)->id, (uintptr_t)queue_);
+ 
+-    PTR(PTR(OSThread)) cur = queue_;
+-    while (cur != NULLPTR) {
+-        PTR(OSThread)* cur_ptr = queue_to_ptr(PASS_RDRAM queue_);
+-        if (*cur_ptr == t_) {
+-            *cur_ptr = TO_PTR(OSThread, *cur_ptr)->next;
++    // Walk the list and unlink t_ wherever it is. (The previous version only ever looked at
++    // the head of the queue, so a thread further down was never removed; re-inserting it
++    // then put it in the queue twice and corrupted the scheduler.)
++    PTR(OSThread)* link = queue_to_ptr(PASS_RDRAM queue_);
++    while (*link != NULLPTR) {
++        if (*link == t_) {
++            *link = TO_PTR(OSThread, t_)->next;
++            TO_PTR(OSThread, t_)->next = NULLPTR;
+             return true;
+         }
+-        cur = TO_PTR(OSThread, *cur_ptr)->next;
++        link = &TO_PTR(OSThread, *link)->next;
+     }
+ 
+     return false;
+--- a/ultramodern/src/threads.cpp
++++ b/ultramodern/src/threads.cpp
+@@ -1,5 +1,6 @@
+ #include <cstdio>
+ #include <thread>
++#include <chrono>
+ #include <cassert>
+ #include <string>
+ 
+@@ -33,6 +34,7 @@
+ // Whether this thread is part of the game (i.e. the start thread or one spawned by osCreateThread)
+ thread_local bool is_game_thread = false;
+ thread_local PTR(OSThread) thread_self = NULLPTR;
++thread_local UltraThreadContext* thread_self_context = nullptr; // debug check
+ 
+ void ultramodern::set_entrypoint_thread() {
+     ::is_game_thread = true;
+@@ -137,6 +139,12 @@
+     //         break;
+     // }
+ }
++#elif defined(__vita__)
++extern "C" void tnt_vita_register_thread(const char* name) __attribute__((weak)); // TNTRecomp/vita: per-thread CPU readout
++void ultramodern::set_native_thread_name(const std::string& name) {
++    if (tnt_vita_register_thread) tnt_vita_register_thread(name.c_str());
++}
++void ultramodern::set_native_thread_priority(ThreadPriority pri) {}
+ #elif defined(__APPLE__)
+ void ultramodern::set_native_thread_name(const std::string& name) {
+     if (name.length() > 15) {
+@@ -150,8 +158,31 @@
+ void ultramodern::set_native_thread_priority(ThreadPriority pri) {}
+ #endif
+ 
++#if defined(__vita__)
++// Busy time per N64 thread (time between being resumed and giving up control), for the
++// Vita build's status screen. TNTRecomp/vita/vita_backend.cpp.
++extern "C" void tnt_vita_thread_busy(int id, uint64_t usecs) __attribute__((weak));
++static thread_local std::chrono::steady_clock::time_point resumed_at{};
++static void note_stop_running(int id) {
++    if (tnt_vita_thread_busy && resumed_at.time_since_epoch().count() != 0) {
++        auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - resumed_at).count();
++        tnt_vita_thread_busy(id, (uint64_t)us);
++    }
++}
++static void note_start_running() { resumed_at = std::chrono::steady_clock::now(); }
++#else
++static void note_stop_running(int) {}
++static void note_start_running() {}
++#endif
++
+ void wait_for_resumed(RDRAM_ARG UltraThreadContext* thread_context) {
+-    thread_context->running.wait();
++    if (thread_self) note_stop_running(TO_PTR(OSThread, thread_self)->id);
++    // wait() can fail without being signalled if the underlying OS wait is interrupted
++    // (seen on the PS Vita); retry so a thread never runs while another one holds control.
++    while (!thread_context->running.wait()) {
++        debug_printf("[Thread] semaphore wait failed, retrying\n");
++    }
++    note_start_running();
+     // If this thread's context was replaced by another thread or deleted, destroy it again from its own context.
+     // This will trigger thread cleanup instead.
+     if (TO_PTR(OSThread, ultramodern::this_thread())->context != thread_context) {
+@@ -176,12 +207,14 @@
+ 
+ void ultramodern::run_next_thread_and_wait(RDRAM_ARG1) {
+     UltraThreadContext* cur_context = TO_PTR(OSThread, thread_self)->context;
++    if (cur_context != thread_self_context) fprintf(stderr, "[CHECK] thread %d context mismatch: struct %p, own %p\n", TO_PTR(OSThread, thread_self)->id, (void*)cur_context, (void*)thread_self_context);
+     run_next_thread(PASS_RDRAM1);
+     wait_for_resumed(PASS_RDRAM cur_context);
+ }
+ 
+ void ultramodern::resume_thread_and_wait(RDRAM_ARG OSThread *t) {
+     UltraThreadContext* cur_context = TO_PTR(OSThread, thread_self)->context;
++    if (cur_context != thread_self_context) fprintf(stderr, "[CHECK] thread %d context mismatch: struct %p, own %p\n", TO_PTR(OSThread, thread_self)->id, (void*)cur_context, (void*)thread_self_context);
+     resume_thread(t);
+     wait_for_resumed(PASS_RDRAM cur_context);
+ }
+@@ -190,6 +223,7 @@
+     OSThread *self = TO_PTR(OSThread, self_);
+     debug_printf("[Thread] Thread created: %d\n", self->id);
+     thread_self = self_;
++    thread_self_context = thread_context;
+     is_game_thread = true;
+ 
+     // Set the thread name
+@@ -222,6 +256,7 @@
+ 
+     // Check if the thread hasn't been destroyed or replaced. If so, then the thread terminated or destroyed itself,
+     // so mark this thread as destroyed and run the next queued thread.
++    note_stop_running(self->id);
+     if (self->context == thread_context) {
+         self->context = nullptr;
+         run_next_thread(PASS_RDRAM1);
+@@ -266,7 +301,7 @@
+     context->host_thread = std::thread{_thread_func, PASS_RDRAM t_, entrypoint, arg, t->context};
+ 
+     // Wait until the thread is initialized to indicate that it's ready to be started.
+-    context->initialized.wait();
++    while (!context->initialized.wait()) {}
+     debug_printf("[os] Thread %d is ready to be started\n", t->id);
+ }
+ 

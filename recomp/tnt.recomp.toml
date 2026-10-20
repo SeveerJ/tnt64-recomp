@@ -1,0 +1,28 @@
+[input]
+entrypoint = 0x8003AD80
+symbols_file_path = "tnt.syms.toml"
+rom_file_path = "../baserom.us.z64"
+output_func_path = "RecompiledFuncs"
+uses_mips3_float_mode = false
+bss_section_suffix = ".bss"
+
+[patches]
+stubs = ["game_SetWatchLo", "game_ClearWatchLo"]
+ignored = [
+    "rspboot_text",          # RSP boot microcode mis-split as CPU code
+    "__osMakeMotorData",     # only used by motor funcs the runtime replaces
+    "tnt_PfsUnknown_4610",   # helper only called by tnt_PfsUnknown_46E4
+    "__osGbpakSetBank",      # only used by Transfer Pak funcs below
+    # Implemented in tnt_pak_stubs.c as 'no accessory connected':
+    "tnt_PfsUnknown_46E4", "tnt_GbpakUnknown_5CF0",
+    "osGbpakInit", "osGbpakPower", "osGbpakReadWrite",
+    # Implemented in tnt_cont_fix.c (alignment-safe wrappers around the runtime's versions):
+    "tnt_osContInit", "tnt_osContGetQuery",
+]
+
+# Leaderboard (TNTRecomp/src/leaderboard.cpp): called at the end of every game, once per
+# player, as the game updates that player's profile and the high-score tables.
+# a0 = player profile (name at +0), a1 = game results, a2 = player index.
+[[patches.hook]]
+func = "func_8007875C"
+text = "tnt_on_game_result(rdram, ctx);"

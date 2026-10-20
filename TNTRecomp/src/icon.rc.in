@@ -1,0 +1,3 @@
+// Windows resources: the app icon (Explorer, taskbar, Alt+Tab). Resource id 1 is what SDL
+// picks up for the window when SDL_HINT_WINDOWS_INTRESOURCE_ICON is "1".
+1 ICON "@TNT_ICON_ICO@"
