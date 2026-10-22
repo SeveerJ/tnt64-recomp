@@ -44,6 +44,7 @@ static void crash_handler(int sig) {
 #include "gles/gles_includes.h"
 #include "gles/n64_renderer.hpp"
 std::atomic<bool> tnt_overlay_enabled{ true };
+extern std::atomic<bool> tnt_timer_enabled;
 std::atomic<float> tnt_game_fps{ 0.0f };
 bool tnt_build_overlay(uint8_t* rdram, uint32_t game_dl, uint64_t frame);
 #endif
@@ -215,6 +216,7 @@ namespace {
             n64gfx::Config cfg;
             if (const char* sc = std::getenv("TNT_GLES_SCALE")) cfg.scale = std::max(1, atoi(sc));
             if (const char* dd = std::getenv("TNT_DUMP_BACKGROUNDS")) cfg.dump_dir = dd;
+            tnt_timer_enabled = true;
             renderer = std::make_unique<n64gfx::Renderer>(rdram, cfg);
             if (const char* d = std::getenv("TNT_GLES_DUMP")) dump_prefix = d;
             if (const char* e = std::getenv("TNT_GLES_DUMP_EVERY")) dump_every = std::max(1, atoi(e));
@@ -363,6 +365,23 @@ namespace {
                     if (arr) for (int c = 0; c < 4; c++) { uint32_t st = w(arr + c * 4); if (st) { uint32_t pr = w(st + 0x14); printf(" | c%d state %08X cur %04X prev %04X press %04X A %u", c, pr, pr ? w(pr) : 0, pr ? w(pr + 4) : 0, pr ? w(pr + 8) : 0, pr ? w(pr + 0x40) : 0); } }
                     printf("\n");
                 }
+            }
+        }
+        if (const char* wl = std::getenv("TNT_WATCH"); wl && g_rdram) {
+            // Testing aid: TNT_WATCH=addr,addr,... prints those RDRAM words twice a second.
+            static double next_watch = 0;
+            if (t >= next_watch) {
+                next_watch = t + 0.5;
+                printf("[watch] %.1f", t);
+                std::string list = wl;
+                size_t p = 0;
+                while (p < list.size()) {
+                    size_t q = list.find(',', p); if (q == std::string::npos) q = list.size();
+                    uint32_t a = (uint32_t)strtoul(list.substr(p, q - p).c_str(), nullptr, 16);
+                    printf(" %08X=%u", a, *reinterpret_cast<uint32_t*>(g_rdram + (a & 0x7FFFFC)));
+                    p = q + 1;
+                }
+                printf("\n");
             }
         }
         if (t >= next_report) {

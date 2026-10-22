@@ -18,7 +18,7 @@ endif()
 
 set(VITA_APP_NAME "TNT Recompiled")
 set(VITA_TITLEID  "TNTR00001")
-set(VITA_VERSION  "00.20")
+set(VITA_VERSION  "01.00")
 set(TNT_VITA_APP_DIR "ux0:data/TNTRecompiled")
 
 set(TNT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")

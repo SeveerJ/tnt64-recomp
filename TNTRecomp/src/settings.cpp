@@ -50,6 +50,7 @@ const std::vector<tnt::SettingField>& tnt::setting_fields() {
           "original runs at the game's own rate; display matches your monitor; manual uses refresh_rate_value." },
         { "display", "refresh_rate_value", &S::refresh_rate_value, {}, 20, 360, "Target rate when refresh_rate = manual." },
         { "display", "show_fps", &S::show_fps, {}, 0, 0, "FPS and frame counter in the corner. F3 toggles it while playing." },
+        { "display", "show_timer", &S::show_timer, {}, 0, 0, "How long the current game has been running, in the top-right corner (pauses with the game)." },
         { "display", "developer_mode", &S::developer_mode, {}, 0, 0, "RT64's debugging overlay." },
         { "display", "dump_backgrounds", &S::dump_backgrounds, {}, 0, 0,
           "Save each background the first time it's shown, as a .tga in the backgrounds folder next to this file (PS Vita)." },

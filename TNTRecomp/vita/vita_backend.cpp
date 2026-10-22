@@ -456,6 +456,17 @@ namespace {
             if (renderer) return true;
             if (failed) return false;
             {
+                // vitaGL compiles its shaders with Sony's shader compiler, which has to be
+                // installed separately. Without it the screen would just stay black.
+                SceIoStat st{};
+                if (sceIoGetstat("ur0:data/libshacccg.suprx", &st) < 0 && sceIoGetstat("ur0:data/external/libshacccg.suprx", &st) < 0) {
+                    failed = true;
+                    tnt_vita_set_error("LIBSHACCCG.SUPRX IS MISSING, SO THE GAME CAN'T BE DRAWN. INSTALL IT WITH SHARKF00D "
+                                       "(IT SAVES THE FILE TO UR0:DATA/), THEN START THE GAME AGAIN. SOUND STILL WORKS.");
+                    return false;
+                }
+            }
+            {
                 // Take the display over from the status screen.
                 std::lock_guard lock{ display_mutex };
                 gl_active = true;

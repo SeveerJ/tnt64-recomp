@@ -27,6 +27,11 @@ namespace tnt {
         std::string refresh_rate = "original"; // original, display, manual
         int refresh_rate_value = 60;
         bool show_fps = true;
+#if defined(__vita__)
+        bool show_timer = false;
+#else
+        bool show_timer = true;
+#endif
         bool developer_mode = false;
         bool dump_backgrounds = false;
         // [audio]

@@ -42,6 +42,7 @@
 
 extern std::atomic<uint64_t> tnt_dl_count, tnt_screen_count; // rt64_render_context.cpp
 extern std::atomic<bool> tnt_overlay_enabled;
+extern std::atomic<bool> tnt_timer_enabled;
 extern std::atomic<float> tnt_game_fps, tnt_vi_rate;
 namespace tnt { std::unique_ptr<ultramodern::renderer::RendererContext> create_rt64_context(uint8_t*, ultramodern::renderer::WindowHandle, bool); }
 
@@ -444,6 +445,7 @@ tnt::Backend tnt::make_backend(int argc, char** argv) {
     build_keymap();
     autopress = std::getenv("TNT_AUTOPRESS") != nullptr;
     tnt_overlay_enabled = st.show_fps;
+    tnt_timer_enabled = st.show_timer;
     if (const char* o = std::getenv("TNT_OVERLAY")) tnt_overlay_enabled = (o[0] != '0');
     tnt::leaderboard::configure_panel(st.after_game_panel, st.panel_seconds);
     tnt::audio::set_latency(st.audio_latency);

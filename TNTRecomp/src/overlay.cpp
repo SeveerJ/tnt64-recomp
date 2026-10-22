@@ -12,6 +12,8 @@
 
 extern std::atomic<bool> tnt_overlay_enabled;
 extern std::atomic<float> tnt_game_fps;
+// Play timer in the top-right corner (settings.ini [display] show_timer; set by the back end).
+std::atomic<bool> tnt_timer_enabled{ false };
 constexpr uint32_t tnt_overlay_dl_addr = 0x7F0000;
 
 // ---- Frame / FPS overlay ----------------------------------------------------
@@ -76,6 +78,7 @@ namespace {
         for (const char* c = text; *c; c++) {
             if (*c >= '0' && *c <= '9') { digit(w, x, y, *c - '0'); x += 7; }
             else if (*c == '.') { rect(w, x, y + 8, x, y + 8); x += 3; }
+            else if (*c == ':') { rect(w, x, y + 2, x, y + 2); rect(w, x, y + 6, x, y + 6); x += 3; }
             else x += 4;
         }
         return x;
@@ -231,12 +234,32 @@ namespace {
 
 }
 
-// Builds the overlay list (FPS counter and/or after-game panel). Returns false if there's nothing to draw.
+namespace {
+    // The game's own count of frames played in the current game (60 per second, stops while
+    // paused and at game over, reset when the next game starts). Found by searching RAM.
+    constexpr uint32_t game_frames_addr = 0x8011EEE8;
+    // Shown while it's counting, and for 5 s after it stops (so the final time stays up).
+    bool game_timer(uint8_t* rdram, uint64_t frame, char* out, size_t n) {
+        static uint32_t last_value = 0;
+        static uint64_t last_change = 0;
+        uint32_t v = *reinterpret_cast<uint32_t*>(rdram + (game_frames_addr & 0x7FFFFC));
+        if (v != last_value) { last_value = v; last_change = frame; }
+        if (v == 0 || v > 60u * 60 * 60 * 24 || frame - last_change > 300) return false;
+        uint32_t secs = v / 60;
+        if (secs >= 3600) snprintf(out, n, "%u:%02u:%02u", secs / 3600, (secs / 60) % 60, secs % 60);
+        else snprintf(out, n, "%u:%02u", secs / 60, secs % 60);
+        return true;
+    }
+}
+
+// Builds the overlay list (FPS counter, play timer and/or after-game panel). Returns false if there's nothing to draw.
 bool tnt_build_overlay(uint8_t* rdram, uint32_t game_dl, uint64_t frame) {
         tnt::leaderboard::Panel panel;
         bool show_panel = tnt::leaderboard::get_panel(panel);
         bool show_fps = tnt_overlay_enabled.load();
-        if (!show_panel && !show_fps) return false;
+        char timer[16] = {};
+        bool show_timer = tnt_timer_enabled.load() && game_timer(rdram, frame, timer, sizeof(timer));
+        if (!show_panel && !show_fps && !show_timer) return false;
         uint32_t cimg0 = 0, cimg1 = 0;
         if (!find_color_image(rdram, game_dl, cimg0, cimg1)) return false;
         int width = int(cimg0 & 0xFFF) + 1;
@@ -263,6 +286,15 @@ bool tnt_build_overlay(uint8_t* rdram, uint32_t game_dl, uint64_t frame) {
                 set_color(w, cimg0, 255, 255, 255);             // white: frame counter
                 number(w, x, y + 12, frames);
             }
+        }
+        if (show_timer) {
+            int text_w = 0;
+            for (const char* c = timer; *c; c++) text_w += (*c == ':') ? 3 : 7;
+            int x = width - text_w - 8, y = 8;
+            set_color(w, cimg0, 0, 0, 0);                       // backing box
+            rect(w, x - 3, y - 3, x + text_w, y + 11);
+            set_color(w, cimg0, 120, 220, 255);                 // light blue: play time
+            number(w, x, y, timer);
         }
         if (show_panel) draw_panel(w, cimg0, width, height, panel);
 
