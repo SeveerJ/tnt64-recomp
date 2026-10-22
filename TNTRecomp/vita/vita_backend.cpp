@@ -35,14 +35,14 @@
 
 #include "tnt_game.hpp"
 #include "settings.hpp"
-#include "leaderboard.hpp"
 #include "font5x7.h"
 #include "librecomp/rsp.hpp"
 #include <vitaGL.h>
 #include "gles/n64_renderer.hpp"
 
-// Overlay (src/overlay.cpp): FPS counter and the after-game high-score panel.
-std::atomic<bool> tnt_overlay_enabled{ true };   // SELECT + TRIANGLE toggles it
+// Overlay (src/overlay.cpp): just the FPS counter on the Vita. Off unless settings.ini
+// [display] show_fps = true; SELECT + TRIANGLE toggles it.
+std::atomic<bool> tnt_overlay_enabled{ false };
 std::atomic<float> tnt_game_fps{ 0.0f };
 constexpr uint32_t tnt_overlay_dl_addr = 0x7F0000;
 bool tnt_build_overlay(uint8_t* rdram, uint32_t game_dl, uint64_t frame);
@@ -54,7 +54,9 @@ extern "C" unsigned int _newlib_heap_size_user = 192 * 1024 * 1024;
 
 extern "C" void tnt_vita_register_thread(const char* name);
 #include "recomp.h"
-extern "C" void tnt_on_game_result(uint8_t* rdram, recomp_context* ctx);
+// Hook the recompiled game calls when a game ends. The PC build records results there;
+// the Vita build keeps no records, so it does nothing.
+extern "C" void tnt_on_game_result(uint8_t*, recomp_context*) {}
 void tnt_vita_set_error(const std::string& msg);
 namespace {
     void tnt_vita_register_thread_internal(const char* name) { tnt_vita_register_thread(name); }
@@ -300,7 +302,6 @@ namespace {
             last_logged = b;
         }
         pad_buttons = b;
-        if (b) tnt::leaderboard::on_button();
 
         // Hold START + SELECT for 2 seconds to quit.
         uint64_t now = now_ms();
@@ -482,11 +483,6 @@ namespace {
             cfg.scale = tnt::settings().resolution == "native" ? 1 : 2;
             cfg.output_width = SCREEN_W;
             cfg.output_height = SCREEN_H;
-            if (tnt::settings().dump_backgrounds) {
-                cfg.dump_dir = TNT_VITA_APP_DIR "/backgrounds";
-                sceIoMkdir(cfg.dump_dir.c_str(), 0777);
-                printf("[vita] saving backgrounds to %s\n", cfg.dump_dir.c_str());
-            }
             renderer = std::make_unique<n64gfx::Renderer>(rdram, cfg);
             return true;
         }
@@ -629,10 +625,7 @@ namespace {
             }
         }
 
-        uint32_t age = 0;
-        std::string lb = tnt::leaderboard::last_message(&age);
         y += 6;
-        if (!lb.empty()) { text(fb, 32, y, 2, green, "LAST GAME: " + lb); y += 26; }
         {
             std::lock_guard lock{ status_mutex };
             if (!error_text.empty()) {
@@ -659,28 +652,6 @@ namespace {
     }
 
     void update_gfx(void*) {
-#if defined(TNT_VITA_TEST_RESULT)
-        {
-            // Emulator test: fake a finished game for a saved name 40 s after start.
-            static auto start = std::chrono::steady_clock::now();
-            static bool done = false;
-            if (!done && g_rdram && std::chrono::steady_clock::now() - start > std::chrono::seconds(40)) {
-                done = true;
-                auto b8 = [&](uint32_t a, uint8_t v) { g_rdram[((a & 0x7FFFFF) ^ 3)] = v; };
-                auto w32 = [&](uint32_t a, uint32_t v) { *reinterpret_cast<uint32_t*>(g_rdram + (a & 0x7FFFFF)) = v; };
-                const char* nm = "ALAN";
-                for (int i = 0; i < 8; i++) b8(0x807E0000 + i, i < 4 ? nm[i] : 0);
-                for (int i = 0; i < 0x40; i += 4) w32(0x807E0100 + i, 0);
-                b8(0x807E0105, 1);
-                w32(0x807E0108, 95); w32(0x807E0118, 1234); w32(0x807E0128, 12);
-                recomp_context ctx{};
-                ctx.r4 = (int32_t)0x807E0000; ctx.r5 = (int32_t)0x807E0100; ctx.r6 = 0;
-                printf("[test] faking a game result\n");
-                tnt_on_game_result(g_rdram, &ctx);
-                printf("[test] game result handled\n");
-            }
-        }
-#endif
         static auto next = std::chrono::steady_clock::now();
         sample_inputs();
         watch_game_pad();
@@ -770,6 +741,7 @@ tnt::Backend tnt::make_backend(int, char**) {
     const tnt::Settings& st = tnt::settings();
     headroom_vis = st.audio_latency;
     volume_percent = st.volume;
+    tnt_overlay_enabled = st.show_fps;
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
     audio_running = true;
     audio_thread = std::thread{ audio_thread_func };

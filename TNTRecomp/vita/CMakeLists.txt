@@ -57,7 +57,6 @@ add_executable(TNTRecompiled
     "${TNT_ROOT}/src/main.cpp"
     "${TNT_ROOT}/src/register_overlays.cpp"
     "${TNT_ROOT}/src/crash_handler_win.cpp"
-    "${TNT_ROOT}/src/leaderboard.cpp"
     "${TNT_ROOT}/src/settings.cpp"
     "${TNT_ROOT}/src/hle_audio.cpp"
     "${TNT_ROOT}/src/hle_audio/alist.c"
@@ -82,13 +81,9 @@ target_include_directories(TNTRecompiled PRIVATE
 target_compile_options(TNTRecompiled PRIVATE -O3 -fno-strict-aliasing)
 # Emulator testing: print to the debug TTY (Vita3K shows it) instead of log.txt.
 option(TNT_VITA_LOG_TO_TTY "Send printf to the debug TTY instead of log.txt" OFF)
-option(TNT_VITA_TEST_RESULT "Emulator test: fake a finished game 40 s after start" OFF)
 set(TNT_VITA_BACKEND_DEFS "")
 if (TNT_VITA_LOG_TO_TTY)
     list(APPEND TNT_VITA_BACKEND_DEFS TNT_VITA_LOG_TO_TTY)
-endif()
-if (TNT_VITA_TEST_RESULT)
-    list(APPEND TNT_VITA_BACKEND_DEFS TNT_VITA_TEST_RESULT)
 endif()
 set_source_files_properties(vita_backend.cpp PROPERTIES COMPILE_DEFINITIONS "${TNT_VITA_BACKEND_DEFS}")
 target_link_libraries(TNTRecompiled PRIVATE

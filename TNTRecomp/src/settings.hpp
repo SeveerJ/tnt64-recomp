@@ -26,7 +26,11 @@ namespace tnt {
         std::string aspect_ratio = "original"; // original, widescreen
         std::string refresh_rate = "original"; // original, display, manual
         int refresh_rate_value = 60;
+#if defined(__vita__)
+        bool show_fps = false;
+#else
         bool show_fps = true;
+#endif
 #if defined(__vita__)
         bool show_timer = false;
 #else

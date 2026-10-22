@@ -93,7 +93,21 @@ const std::vector<tnt::SettingField>& tnt::setting_fields() {
         { "launcher", "show_launcher", &S::show_launcher, {}, 0, 0,
           "Reserved: show a settings screen before the game starts (not built yet)." },
     };
+#if defined(__vita__)
+    // The Vita build only reads these, so only these go in its settings.ini.
+    static const std::vector<SettingField> vita_fields = {
+        { "display", "resolution", &S::resolution, { "auto", "native", "2x" }, 0, 0,
+          "native renders at the game's own resolution; auto or 2x renders at twice that (sharper)." },
+        { "display", "show_fps", &S::show_fps, {}, 0, 0, "FPS and frame counter in the corner. SELECT + TRIANGLE toggles it while playing." },
+        { "audio", "volume", &S::volume, {}, 0, 100, "Master volume, 0-100." },
+        { "audio", "audio_latency", &S::audio_latency, {}, 1, 8,
+          "Frames of extra audio kept queued. Raise it if you hear crackling; lower means less delay." },
+    };
+    (void)fields;
+    return vita_fields;
+#else
     return fields;
+#endif
 }
 
 tnt::Settings& tnt::settings() { return g_settings; }

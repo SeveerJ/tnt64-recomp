@@ -8,12 +8,16 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#if !defined(__vita__)
 #include "leaderboard.hpp"
+#endif
 
 extern std::atomic<bool> tnt_overlay_enabled;
 extern std::atomic<float> tnt_game_fps;
 // Play timer in the top-right corner (settings.ini [display] show_timer; set by the back end).
+#if !defined(__vita__)
 std::atomic<bool> tnt_timer_enabled{ false };
+#endif
 constexpr uint32_t tnt_overlay_dl_addr = 0x7F0000;
 
 // ---- Frame / FPS overlay ----------------------------------------------------
@@ -182,6 +186,7 @@ namespace {
         return b;
     }
 
+#if !defined(__vita__)
     // The game's high-score table for the mode just played, with this game's players highlighted.
     void draw_panel(DlWriter& w, uint32_t cimg0, int width, int height, const tnt::leaderboard::Panel& p) {
         const int s = width >= 640 ? 2 : 1;            // pixel size
@@ -231,6 +236,7 @@ namespace {
             text(w, x0 + 8 * s, y0 + 8 * s + int(i) * lh, s, lines[i].text);
         }
     }
+#endif
 
 }
 
@@ -254,11 +260,18 @@ namespace {
 
 // Builds the overlay list (FPS counter, play timer and/or after-game panel). Returns false if there's nothing to draw.
 bool tnt_build_overlay(uint8_t* rdram, uint32_t game_dl, uint64_t frame) {
+#if defined(__vita__)
+        // The Vita build has only the FPS counter: no high-score panel or play timer.
+        constexpr bool show_panel = false, show_timer = false;
+        char timer[16] = {};
+        (void)game_timer;
+#else
         tnt::leaderboard::Panel panel;
         bool show_panel = tnt::leaderboard::get_panel(panel);
-        bool show_fps = tnt_overlay_enabled.load();
         char timer[16] = {};
         bool show_timer = tnt_timer_enabled.load() && game_timer(rdram, frame, timer, sizeof(timer));
+#endif
+        bool show_fps = tnt_overlay_enabled.load();
         if (!show_panel && !show_fps && !show_timer) return false;
         uint32_t cimg0 = 0, cimg1 = 0;
         if (!find_color_image(rdram, game_dl, cimg0, cimg1)) return false;
@@ -296,7 +309,9 @@ bool tnt_build_overlay(uint8_t* rdram, uint32_t game_dl, uint64_t frame) {
             set_color(w, cimg0, 120, 220, 255);                 // light blue: play time
             number(w, x, y, timer);
         }
+#if !defined(__vita__)
         if (show_panel) draw_panel(w, cimg0, width, height, panel);
+#endif
 
         w.cmd(0xE9000000u, 0);                                  // G_RDPFULLSYNC
         w.cmd(0xDF000000u, 0);                                  // G_ENDDL
