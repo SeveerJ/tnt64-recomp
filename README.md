@@ -29,6 +29,16 @@ runtime/          patches for N64ModernRuntime (commit cdf5abb) and scripts that
 tools/            scripts used while making the port (symbol generation, scans)
 ```
 
+## Playing the Windows release
+
+1. Download and run `TNTRecompiled-Installer.exe`.
+2. When prompted, select your own USA 1.0 *The New Tetris* ROM file (`.z64`, `.n64`, or `.v64`). The expected ROM has MD5 `7a28179b00734c9aa0f0609fafaafd5f`.
+3. Complete setup. Leave **Launch The New Tetris: Recompiled** checked on the final installer page to start playing.
+
+The installer checks and prepares the selected ROM for the game. It does not include a ROM; you must provide your own. If you skip launching at the end, start the game later from the Start menu.
+
+Your save and leaderboard data are kept on your PC. Uninstalling the game preserves that data.
+
 ## Building on Windows
 
 Needs Visual Studio 2022 with "Desktop development with C++" and the "C++ Clang Compiler for
