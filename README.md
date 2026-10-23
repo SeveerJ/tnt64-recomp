@@ -10,9 +10,6 @@
 - **PS Vita** — the same game code with a GLES2 N64 renderer on vitaGL, Vita controls, and
   full-speed play.
 
-> **Private repository.** `recomp/RecompiledFuncs` and `recomp/rsp` contain code generated
-> from the game, and the VPK release contains it too. Keep this repository private.
-> Never commit a ROM; you need your own (USA, MD5 `7a28179b00734c9aa0f0609fafaafd5f`).
 
 ## Layout
 
@@ -57,6 +54,13 @@ you change `tnt.recomp.toml` or `tnt.syms.toml`.
 
 See [TNTRecomp/vita/README.md](TNTRecomp/vita/README.md). The ready-built VPK is attached to
 the releases of this repository.
+
+## Roadmap
+
+Upcoming features include:
+- Dedicated Settings overlay
+- Widescreen support
+- Higher resolution 
 
 ## Licence
 
